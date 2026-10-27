@@ -26,13 +26,13 @@ It pays off in projects that delegate repeated tasks to agents: a writer, a revi
 In a Claude Code terminal session:
 
 ```
-/plugin marketplace add lideke/agent-model-router
+/plugin marketplace add deki-lab/agent-model-router
 /plugin install agent-model-router@agent-model-router
 ```
 
 Pick a scope when asked. The plugin is active right away.
 
-From a shell, the same steps are `claude plugin marketplace add lideke/agent-model-router` and `claude plugin install agent-model-router@agent-model-router`.
+From a shell, the same steps are `claude plugin marketplace add deki-lab/agent-model-router` and `claude plugin install agent-model-router@agent-model-router`.
 
 Requires Claude Code 2.1.293 or later (function hooks).
 
