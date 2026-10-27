@@ -12,7 +12,7 @@ You tune the model table of the agent-model-router plugin. You propose changes; 
 1. `.claude/agent-model-router.json`: the current table. Fields: `ladder` (models cheapest first), `maxModel`, `agents` (per agent: `model`, `rules` of `{ match, model }`), `escalation`, `context`.
 2. The journal, at `journal.path` in the config (default `.claude/agent-model-router/journal.jsonl`). One JSON object per line: `ts`, `agent`, `task`, `attempt`, `source` (`tag`, `caller`, `rule`, `table`, `escalation`, `default`), `detail`, `requested`, `resolved`, `description`, `promptChars`.
 3. Every file or glob listed in `context`: the project's own record of outcomes (review verdicts, ledgers, CI notes). Read them to learn which tasks passed or failed.
-4. `.claude/agents/*.md`: each agent's frontmatter `model`, the default when the table says nothing.
+4. Each routed agent's file, for its frontmatter `model`, the default when the table says nothing: `.claude/agents/*.md` for the project's own, `~/.claude/agents/*.md` for the user's, `agents/<name>.md` in the plugin's folder under `~/.claude/plugins/` for a plugin agent (`dev-team:kody`).
 
 ## Method
 

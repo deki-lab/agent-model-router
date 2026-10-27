@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.5.1
+
+- `/model-router` now fits the config to agents installed for the user or by a plugin (`dev-team:kody`), not only to `.claude/agents/`. Before, a project whose agents all came from a user-scope plugin got a table with `Explore` alone and no fitting. Claude adds only the agents the project delegates to, keyed by their full name.
+- The `model-tuner` agent reads the frontmatter of user and plugin agents too.
+
 ## 0.5.0
 
 - Patterns (`rules[].match`, `escalation.taskKey`) are capped at 300 characters, and a pattern that repeats a group which itself repeats or has alternatives (`(a+)+`, `(a|b)*`) is refused: it could stall every spawn on a long prompt. Patterns see at most the first 20,000 characters.

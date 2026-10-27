@@ -251,13 +251,15 @@ describe('/model-router init', () => {
     expect(w.spawned).toEqual([undefined])
   })
 
-  test('without agents the config still works, and says the plugin has little to do', async ($, on) => {
+  // Agents installed at user scope or by a plugin (`dev-team:kody`) are not in
+  // .claude/agents/: only the fitting, from the model's agent listing, finds them.
+  test('without project agents the config still works, and Claude looks for user and plugin agents', async ($, on) => {
     const w = world(on)
     const r = await $.command.run({ command: 'model-router', args: 'init' })
     expect(Object.keys(parseConfig(w.files.get(CONFIG) ?? '').agents)).toEqual(['Explore'])
-    expect(r.text).toContain('no agents in .claude/agents/')
+    expect(r.text).toContain('user and plugin agents')
     await settle(w)
-    expect(w.prompts).toEqual([])
+    expect(w.prompts).toEqual(['ADJUST THE CONFIG'])
   })
 
   test('with a config, /model-router shows it and fits it again', async ($, on) => {
@@ -295,12 +297,12 @@ describe('/model-router init', () => {
     expect(w.prompts).toEqual([])
   })
 
-  test('with a config but no agents there is nothing to fit', async ($, on) => {
+  test('with a config but no project agents it is still fitted', async ($, on) => {
     const w = world(on, BASE)
     const r = await $.command.run({ command: 'model-router', args: '' })
-    expect(r.text).toContain('nothing to fit')
+    expect(r.text).toContain('Claude now fits')
     await settle(w)
-    expect(w.prompts).toEqual([])
+    expect(w.prompts).toEqual(['ADJUST THE CONFIG'])
   })
 
   test('frontmatter is read, quotes and all, with the file name as fallback', () => {

@@ -232,15 +232,13 @@ export const register: Register = on => {
     if (arg === 'init') return { text: `${loaded.path} already exists. Run /${COMMAND} to fit it to this project.` }
 
     // Default: show the config, then have Claude fit it to the project as it is now.
+    // Always fitted, even with no .claude/agents/: the project may delegate to
+    // agents installed at user scope or by a plugin (`dev-team:kody`), which
+    // only the model's own agent listing shows.
     const lines = arg === 'adjust' ? [] : await status($, loaded)
-    const root = await $.session.root()
-    if ((await projectAgents($, root)).length === 0) {
-      lines.push(`No agents in .claude/agents/: nothing to fit. Only built-in agents are routed.`)
-    } else {
-      lines.push((await adjust($))
-        ? `Claude now fits ${loaded.path} to this project. Run /${COMMAND} status to see the config alone.`
-        : 'Could not start the fitting here; run it in an interactive session.')
-    }
+    lines.push((await adjust($))
+      ? `Claude now fits ${loaded.path} to this project. Run /${COMMAND} status to see the config alone.`
+      : 'Could not start the fitting here; run it in an interactive session.')
     return { text: lines.join('\n') }
   })
 }
@@ -281,13 +279,10 @@ const create = async ($: EngineInterface, path: string): Promise<string> => {
   const text = `${JSON.stringify(starterConfig(agents), null, 2)}\n`
   if (!(await staysInside($, root, CONFIG_PATH))) return `${path} resolves outside the project; not written.`
   await $.fs.write(path, text)
-  // Without agents of its own there is nothing to fit: only built-in agents are routed.
-  if (agents.length === 0) {
-    return `Created ${path}. This project has no agents in .claude/agents/, so only the built-in agents Claude spawns are routed (Explore on haiku). The plugin pays off once the project has agents of its own: add them, then run /${COMMAND} again.`
-  }
   const names = ['Explore', ...agents.map(a => a.name)].join(', ')
+  // Fitted even without agents of its own: user and plugin agents are only in the model's listing.
   return `Created ${path} with ${names}. Routing is on.${(await adjust($))
-    ? ' Claude now fits task names, rules and context to this project.'
+    ? ' Claude now adds the user and plugin agents this project delegates to, then fits task names, rules and context.'
     : ` Run /${COMMAND} in an interactive session to fit it to this project.`}`
 }
 
