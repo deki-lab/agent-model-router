@@ -7,7 +7,7 @@
 A Claude Code plugin that picks the model each subagent runs on, per project, and learns from what it picked.
 
 [![check](https://github.com/deki-lab/agent-model-router/actions/workflows/check.yml/badge.svg)](https://github.com/deki-lab/agent-model-router/actions/workflows/check.yml)
-![version](https://img.shields.io/badge/version-0.5.1-blue)
+![version](https://img.shields.io/badge/version-0.6.0-blue)
 ![Claude Code](https://img.shields.io/badge/Claude%20Code-%E2%89%A5%202.1.293-d97757)
 ![license](https://img.shields.io/badge/license-MIT-green)
 
@@ -244,7 +244,9 @@ and adds it once you accept.
 
 ### Check it
 
-Each line of `.claude/agent-model-router/journal.jsonl` has a `task` field: the agent and the task name. After a few delegations, read it. Each distinct task should have its own name, and a retry should show `"attempt": 2`.
+Each `spawn` line of `.claude/agent-model-router/journal.jsonl` has a `task` field: the agent and the task name. After a few delegations, read it. Each distinct task should have its own name, and a retry should show `"attempt": 2`.
+
+When a routed subagent finishes a run, a `run` line follows, linked to its spawn by `agentId`: its duration, how it ended, and its tokens (input, output, cache read, cache write). That is what the tuner prices.
 
 ### Pitfalls
 
@@ -258,11 +260,11 @@ After a batch of work, ask Claude:
 
 > Run the model-tuner agent.
 
-`model-tuner` reads the config, the journal, the files listed in `context` and your agents' frontmatter. It reports first-attempt success per agent and model, and proposes minimal config changes with the numbers behind them. It proposes only; you edit the config. Below about 20 journal entries it answers "not enough data".
+`model-tuner` reads the config, the journal, the files listed in `context` and your agents' frontmatter. It reports first-attempt success and tokens per task, per agent and model, and proposes minimal config changes with the numbers behind them. It proposes only; you edit the config. Below about 20 journal entries it answers "not enough data".
 
 ## 🔒 Privacy
 
-The journal stores task descriptions, agent names and models, never prompts. Its folder gets a `.gitignore` containing `*` on first write, so it stays out of git unless you remove that file.
+The journal stores task descriptions, agent names, models, durations and token counts, never prompts or answers. Its folder gets a `.gitignore` containing `*` on first write, so it stays out of git unless you remove that file.
 
 ## ⚠️ Limits
 

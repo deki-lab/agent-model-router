@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.6.0
+
+- The journal now records what each routed run cost. When a subagent the plugin routed finishes a run, a `run` line gives its duration, how it ended and its tokens (input, output, cache read, cache write), linked to its spawn by `agentId`. Spawn lines carry `kind: "spawn"` and the `agentId`. Never the answer.
+- `model-tuner` reports tokens per task beside first-attempt success.
+- `docs/proposals/sizing.md`: the plan for sizing tasks before routing them. This release is its step 0.
+
 ## 0.5.1
 
 - `/model-router` now fits the config to agents installed for the user or by a plugin (`dev-team:kody`), not only to `.claude/agents/`. Before, a project whose agents all came from a user-scope plugin got a table with `Explore` alone and no fitting. Claude adds only the agents the project delegates to, keyed by their full name.
