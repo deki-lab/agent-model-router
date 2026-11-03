@@ -16,6 +16,7 @@ The agent-model-router plugin has a config for this project at `.claude/agent-mo
 - `escalation.taskKey`: a case-insensitive regular expression that matches the name of one task as this project writes it, in the project's language (`bloc\\s*\\d+|intro|outro`, `ticket\\s*#?\\d+`). The plugin uses the first match, searched in the delegation's `description`, then in its `prompt`. Leave it out when tasks have no stable names.
 - `agents.<name>.rules`: add one only when the project clearly marks a kind of task as harder (an opening, a security change). Match a phrase that appears only in the request (`write the intro`), never a word that also appears in repeated context such as a list of finished tasks.
 - `context`: globs of the files where outcomes are recorded.
+- `floors`: add one only for paths that exist in this project and where a weak model can do lasting harm: schema migrations, authentication, permissions, payments, deletion of data. List the folders with `**/` in front (`**/migrations/**`) and set the floor's model to the one the project's riskiest agent runs on, never above `maxModel`. Keep the existing floors as they are. No such paths: no floor.
 - Regular expressions: JSON-escape backslashes. In JavaScript, `\b` only knows ASCII letters: never put `\b` next to an accented letter.
 
 Write the file. Keep it valid JSON: the plugin reads it on every spawn, and a broken file turns routing off.

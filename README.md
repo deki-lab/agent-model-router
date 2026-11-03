@@ -29,6 +29,7 @@ agent-model-router does exactly that, with one JSON file per project:
 | 🪜 **Steps up on retry** | The same task sent to the same agent again runs one model higher: `haiku` → `sonnet` → `opus`. A retry usually means the first attempt failed review. |
 | 📓 **Logs every choice** | Each decision goes to a local journal. The bundled `model-tuner` agent reads it and proposes changes backed by numbers. |
 | 💰 **A cost cap** | `maxModel` caps every choice. |
+| 🧱 **Risk floors** | A task that cites a sensitive path (`**/migrations/**`, `**/auth/**`) runs at least on the model you set for it. |
 | 🛟 **Never in the way** | The plugin never blocks an agent. With no config, or a broken one, agents run exactly as they would without it. |
 
 ## 🚀 Quick start
@@ -97,7 +98,7 @@ On every spawn, the plugin decides in this order:
 ```mermaid
 flowchart TD
     A[Agent call] --> B{"[model: name] tag<br/>in the prompt?"}
-    B -- yes --> CAP
+    B -- yes --> F
     B -- no --> C{Caller passed<br/>a model?}
     C -- yes --> R
     C -- no --> D{A rule of the<br/>agent matches?}
@@ -105,8 +106,11 @@ flowchart TD
     D -- no --> E[Agent's table model]
     E --> R{Same task<br/>seen before?}
     R -- yes --> U[One rung above the<br/>previous attempt]
-    R -- no --> CAP
-    U --> CAP[Capped at maxModel]
+    R -- no --> F
+    U --> F{Task cites a path<br/>with a floor?}
+    F -- yes --> FL[At least the floor's model]
+    F -- no --> CAP
+    FL --> CAP[Capped at maxModel]
     CAP --> S[Spawn]
 ```
 
@@ -115,7 +119,8 @@ flowchart TD
 3. The agent's first matching rule.
 4. The agent's table model.
 5. Retry: if the same task was spawned before, one rung above the model the previous attempt ran on, when that is higher.
-6. `maxModel` caps the result.
+6. Floor: if the description or prompt cites a path that a `floors` glob matches, at least that floor's model, whatever chose the model before, a tag or the caller included. A floor never lowers a model. When the agent has no model in the table and the caller passed none, its own model is unknown to the plugin, so the floor is left out and the journal says so.
+7. `maxModel` caps the result, a floor included.
 
 If the spawn is refused on the chosen model (for example a model your account does not have), the agent runs on the model it would have used without the plugin, and a toast says so. The default ladder stops at `opus`, so escalation never picks a model you did not list.
 
@@ -137,6 +142,9 @@ Forks always inherit their parent's model, and workflow agents cannot be rewritt
     },
     "*": { "model": "sonnet" }
   },
+  "floors": [
+    { "paths": ["**/migrations/**", "**/auth/**"], "model": "opus" }
+  ],
   "escalation": { "enabled": true, "taskKey": "(?:task|step)\\s*#?\\d+", "windowMinutes": 240 },
   "journal": { "enabled": true, "path": ".claude/agent-model-router/journal.jsonl", "maxEntries": 1000 },
   "tags": true,
@@ -156,6 +164,7 @@ Forks always inherit their parent's model, and workflow agents cannot be rewritt
 | `agents.<name>.model` | Model for that agent. Omit it to keep the agent's own frontmatter model | agent default |
 | `agents.<name>.rules` | `{ match, model }` list. `match` is a case-insensitive regular expression tested on the task description and prompt; the first match wins | `[]` |
 | `agents["*"]` | Entry for agents not listed | none |
+| `floors` | `{ paths, model }` list. When the description or prompt cites a path that one of `paths` matches, the spawn runs at least on `model`; the highest floor reached wins. Globs: `**` crosses folders, `*` and `?` do not, case is ignored, and a glob matches the whole path as written, so `migrations/**` misses `db/migrations/1.sql` where `**/migrations/**` matches it. `model` must be on `ladder`; a floor above `maxModel` is capped at it, with a warning | `[]` |
 | `escalation.taskKey` | Regular expression that identifies "the same task" in the description or prompt. Without it, the task description is the key | none |
 | `escalation.windowMinutes` | How long a task is remembered for retry detection | `240` |
 | `journal.maxEntries` | Lines kept in the journal; the oldest go first. The whole file is rewritten on each spawn (the plugin API has no append), so keep it modest. 1000 lines is about 250 KB and plenty for the tuner | `1000` |

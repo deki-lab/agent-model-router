@@ -9,9 +9,9 @@ You tune the model table of the agent-model-router plugin. You propose changes; 
 
 ## Inputs
 
-1. `.claude/agent-model-router.json`: the current table. Fields: `ladder` (models cheapest first), `maxModel`, `agents` (per agent: `model`, `rules` of `{ match, model }`), `escalation`, `context`.
+1. `.claude/agent-model-router.json`: the current table. Fields: `ladder` (models cheapest first), `maxModel`, `agents` (per agent: `model`, `rules` of `{ match, model }`), `floors` (`{ paths, model }`: a minimum model for tasks that cite those paths), `escalation`, `context`.
 2. The journal, at `journal.path` in the config (default `.claude/agent-model-router/journal.jsonl`). One JSON object per line, of two kinds:
-   - `kind: "spawn"` (or no `kind`, in lines written before 0.6.0): `ts`, `agentId`, `agent`, `task`, `attempt`, `source` (`tag`, `caller`, `rule`, `table`, `escalation`, `default`), `detail`, `requested`, `resolved`, `description`, `promptChars`.
+   - `kind: "spawn"` (or no `kind`, in lines written before 0.6.0): `ts`, `agentId`, `agent`, `task`, `attempt`, `source` (`tag`, `caller`, `rule`, `table`, `escalation`, `floor`, `default`), `detail`, `requested`, `resolved`, `description`, `promptChars`.
    - `kind: "run"`: the end of one run of a spawned subagent, linked to its spawn by `agentId`: `ts`, `agent`, `task`, `reason` (`answer`, `aborted`, `refusal`, `error`), `durationMs`, `model`, `tokens` (`input`, `output`, `cacheRead`, `cacheWrite`). A subagent resumed later has several runs.
 3. Every file or glob listed in `context`: the project's own record of outcomes (review verdicts, ledgers, CI notes). Read them to learn which tasks passed or failed.
 4. Each routed agent's file, for its frontmatter `model`, the default when the table says nothing: `.claude/agents/*.md` for the project's own, `~/.claude/agents/*.md` for the user's, `agents/<name>.md` in the plugin's folder under `~/.claude/plugins/` for a plugin agent (`dev-team:kody`).
@@ -26,7 +26,9 @@ You tune the model table of the agent-model-router plugin. You propose changes; 
   - an agent whose first-attempt failures on its table model are high (raise its `model`, or add a rule for the kind of task that fails);
   - an agent that never fails on an expensive model (try one rung lower);
   - a rule that never matches, or matches tasks that succeed on the cheaper model (remove it);
-  - a `taskKey` that merges different tasks or splits one task (fix the pattern).
+  - a `taskKey` that merges different tasks or splits one task (fix the pattern);
+  - a floor (`source: "floor"`) whose glob matches tasks its description shows are not risky (narrow the glob). Never propose lowering or removing a floor on success rates: a floor guards against harm a retry does not reveal;
+  - a `detail` saying a floor was capped at `maxModel` or not applied because the agent's model is unknown: report it, since a risky task ran below its floor.
 
 ## Thresholds
 

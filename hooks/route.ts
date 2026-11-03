@@ -8,21 +8,27 @@ export type Rule = { match: string; model: string }
 
 export type AgentEntry = { model?: string; rules: Rule[] }
 
+/** At least `model` for a spawn whose description or prompt cites a path one of `paths` matches. */
+export type Floor = { paths: string[]; model: string }
+
 export type Config = {
   enabled: boolean
   ladder: string[]
   maxModel?: string
   agents: Record<string, AgentEntry>
+  floors: Floor[]
   tags: boolean
   escalation: { enabled: boolean; taskKey?: string; windowMinutes: number }
   journal: { enabled: boolean; path: string; maxEntries: number }
   notify: boolean
   context: string[]
+  /** What parsing changed and the user should know, such as a floor capped at `maxModel`. */
+  warnings: string[]
 }
 
 export type Attempt = { model: string; count: number; at: number }
 
-export type Source = 'tag' | 'caller' | 'rule' | 'table' | 'escalation' | 'default'
+export type Source = 'tag' | 'caller' | 'rule' | 'table' | 'escalation' | 'floor' | 'default'
 
 export type Choice = { model?: string; source: Source; detail?: string }
 
@@ -148,11 +154,33 @@ export const parseConfig = (text: string): Config => {
   const maxModel = raw.maxModel === undefined ? undefined : str(raw.maxModel, 'maxModel')
   if (maxModel && rankOf(maxModel, ladder) < 0) throw new Error(`maxModel must be on the ladder (${ladder.join(', ')}): ${maxModel}`)
 
+  const warnings: string[] = []
+  const rawFloors = raw.floors ?? []
+  if (!Array.isArray(rawFloors)) throw new Error('floors must be a list of { "paths": [...], "model": ... }')
+  const floors = rawFloors.map((f, i): Floor => {
+    const where = `floors[${i}]`
+    if (!isRecord(f) || !Array.isArray(f.paths) || f.paths.length === 0) throw new Error(`${where} must be { "paths": [...], "model": ... } with at least one path`)
+    const paths = f.paths.map((g, j) => {
+      const glob = str(g, `${where}.paths[${j}]`)
+      if (glob.length > MAX_PATTERN) throw new Error(`${where}.paths[${j}] is longer than ${MAX_PATTERN} characters`)
+      return glob
+    })
+    let model = str(f.model, `${where}.model`)
+    if (rankOf(model, ladder) < 0) throw new Error(`${where}.model must be on the ladder (${ladder.join(', ')}): ${model}`)
+    // The cap wins: nothing runs above maxModel, a floor included.
+    if (maxModel && rankOf(model, ladder) > rankOf(maxModel, ladder)) {
+      warnings.push(`floor ${model} on ${paths.join(', ')} capped at ${maxModel} (maxModel)`)
+      model = maxModel
+    }
+    return { paths, model }
+  })
+
   return {
     enabled: raw.enabled !== false,
     ladder,
     maxModel,
     agents,
+    floors,
     tags: raw.tags !== false,
     escalation: {
       enabled: esc.enabled !== false,
@@ -166,7 +194,53 @@ export const parseConfig = (text: string): Config => {
     },
     notify: raw.notify !== false,
     context: Array.isArray(raw.context) ? raw.context.filter((c): c is string => typeof c === 'string') : [],
+    warnings,
   }
+}
+
+/**
+ * A path glob as a regular expression on a whole path: `**` crosses
+ * folders, `*` and `?` do not. Case-insensitive: a floor that matches too
+ * often only costs money, one that misses can cost quality.
+ */
+export const globToRegExp = (glob: string): RegExp => {
+  let out = ''
+  for (let i = 0; i < glob.length; i++) {
+    const c = glob[i] ?? ''
+    if (c === '*' && glob[i + 1] === '*') {
+      if (glob[i + 2] === '/') { out += '(?:[^/]*/)*'; i += 2 } else { out += '.*'; i += 1 }
+    } else if (c === '*') out += '[^/]*'
+    else if (c === '?') out += '[^/]'
+    else out += c.replace(/[.+^${}()|[\]\\]/g, '\\$&')
+  }
+  return new RegExp(`^${out}$`, 'i')
+}
+
+const MAX_PATH = 300
+
+/**
+ * The paths a text cites: each word, stripped of quotes, brackets, a leading
+ * `./`, a `:line:col` suffix and trailing punctuation.
+ */
+export const citedPaths = (text: string): string[] =>
+  (text.match(/[^\s`'"()<>[\]{},;]+/g) ?? [])
+    .map(w => w.replace(/^\.\//, '').replace(/(?::\d+){1,2}$/, '').replace(/[.:!?]+$/, ''))
+    .filter(w => w !== '' && w.length <= MAX_PATH)
+
+/** The highest floor a text reaches, with the glob that set it; undefined when none. */
+export const floorFor = (text: string, cfg: Config): { model: string; glob: string } | undefined => {
+  if (cfg.floors.length === 0) return undefined
+  const paths = citedPaths(text)
+  let best: { model: string; glob: string } | undefined
+  for (const floor of cfg.floors) {
+    if (best && rankOf(floor.model, cfg.ladder) <= rankOf(best.model, cfg.ladder)) continue
+    const glob = floor.paths.find(g => {
+      const re = globToRegExp(g)
+      return paths.some(p => re.test(p))
+    })
+    if (glob) best = { model: floor.model, glob }
+  }
+  return best
 }
 
 /** Place of a model on the ladder: an alias (`sonnet`) or a full id that contains it. -1 when unknown. */
@@ -232,6 +306,7 @@ export const starterConfig = (agents: readonly AgentFile[]): object => {
     ladder,
     maxModel: 'opus',
     agents: table,
+    floors: [],
     tags: true,
     escalation: { enabled: true, windowMinutes: 240 },
     journal: { enabled: true, path: JOURNAL_PATH, maxEntries: 1000 },
@@ -274,7 +349,8 @@ export const prune = (raw: unknown, now: number, windowMinutes: number): Record<
  * The model for one spawn. Order: an explicit `[model: x]` tag in the prompt,
  * the caller's own `model`, the agent's first matching rule, the agent's table
  * model. A retry of the same task then steps one rung above what the previous
- * attempt ran on (never for a tag). `maxModel` caps everything.
+ * attempt ran on (never for a tag). A floor raises the result when the task
+ * cites a sensitive path. `maxModel` caps everything.
  */
 export const decide = (facts: SpawnFacts, cfg: Config, previous?: Attempt): Choice => {
   const text = `${facts.description}\n${facts.prompt}`.slice(0, MAX_TESTED)
@@ -296,6 +372,18 @@ export const decide = (facts: SpawnFacts, cfg: Config, previous?: Attempt): Choi
     const up = stepUp(previous.model, cfg.ladder)
     if (up && rankOf(up, cfg.ladder) > rankOf(choice.model, cfg.ladder)) {
       choice = { model: up, source: 'escalation', detail: `attempt ${previous.count + 1}, previous ${previous.model}` }
+    }
+  }
+
+  // A floor raises whatever chose the model, a tag or the caller included. It
+  // never lowers: when the agent's own model is unknown, it is left alone.
+  const floor = floorFor(text, cfg)
+  if (floor) {
+    const have = rankOf(choice.model, cfg.ladder)
+    if (choice.model === undefined) {
+      choice = { ...choice, detail: [choice.detail, `floor ${floor.model} on ${floor.glob} not applied: the agent's own model is unknown`].filter(Boolean).join(', ') }
+    } else if (have >= 0 && have < rankOf(floor.model, cfg.ladder)) {
+      choice = { model: floor.model, source: 'floor', detail: `${floor.glob}, raised from ${choice.model} (${choice.source})` }
     }
   }
 

@@ -1,6 +1,6 @@
 import type { AgentSpawnInput, On } from 'claude-code'
 import { describe, expect, mock, test } from 'claude-code/testing'
-import { decide, parseConfig, rankOf, readAgentFile, taskKeyOf, withTopModel } from './route.ts'
+import { citedPaths, decide, globToRegExp, parseConfig, rankOf, readAgentFile, taskKeyOf, withTopModel } from './route.ts'
 
 const ROOT = '/proj'
 const CONFIG = `${ROOT}/.claude/agent-model-router.json`
@@ -522,5 +522,88 @@ describe('pure rules', () => {
 
   test('a bad rule is reported with its place', () => {
     expect(() => parseConfig('{"agents":{"w":{"rules":[{"match":"(","model":"opus"}]}}}')).toThrow('agents.w.rules[0].match')
+  })
+})
+
+describe('floors', () => {
+  const FLOORED = {
+    ...BASE,
+    maxModel: 'opus',
+    agents: { ...BASE.agents, '*': {} },
+    floors: [
+      { paths: ['**/migrations/**'], model: 'opus' },
+      { paths: ['**/auth/**', 'billing.ts'], model: 'sonnet' },
+    ],
+  }
+  const cfg = parseConfig(JSON.stringify(FLOORED))
+  const facts = (agent: string, prompt: string, given?: string) => ({ agent, prompt, description: 'd', given })
+
+  test('a task that cites a sensitive path runs at least on its floor', () => {
+    const c = decide(facts('reviewer', 'Check `db/migrations/0042_users.sql:12` before merge.'), cfg)
+    expect(c.model).toBe('opus')
+    expect(c.source).toBe('floor')
+    expect(c.detail).toBe('**/migrations/**, raised from haiku (table)')
+  })
+
+  test('the floor also holds against the caller and a tag', () => {
+    expect(decide(facts('reviewer', 'Fix src/auth/session.ts', 'haiku'), cfg).model).toBe('sonnet')
+    expect(decide(facts('reviewer', '[model: haiku] Fix src/auth/session.ts'), cfg).model).toBe('sonnet')
+  })
+
+  test('a floor never lowers a model', () => {
+    const c = decide(facts('writer', 'Write the intro, see src/auth/login.ts'), cfg)
+    expect(c.model).toBe('opus')
+    expect(c.source).toBe('rule')
+  })
+
+  test('the highest floor reached wins', () => {
+    expect(decide(facts('reviewer', 'src/auth/a.ts and db/migrations/1.sql'), cfg).model).toBe('opus')
+  })
+
+  test('a word is not a path, and an unrelated path changes nothing', () => {
+    expect(decide(facts('reviewer', 'Improve the auth flow and the migrations doc'), cfg).source).toBe('table')
+    expect(decide(facts('reviewer', 'Fix src/billing.ts'), cfg).source).toBe('table')
+  })
+
+  test('with the agent own model unknown, the floor is left out and said so', () => {
+    const c = decide(facts('stranger', 'Fix db/migrations/1.sql'), cfg)
+    expect(c.model).toBeUndefined()
+    expect(c.detail).toContain('not applied')
+  })
+
+  test('a floor above maxModel is capped at parse time, with a warning', () => {
+    const capped = parseConfig(JSON.stringify({ ...FLOORED, maxModel: 'sonnet' }))
+    expect(capped.floors[0]?.model).toBe('sonnet')
+    expect(capped.warnings).toEqual(['floor opus on **/migrations/** capped at sonnet (maxModel)'])
+    expect(decide(facts('reviewer', 'db/migrations/1.sql'), capped).model).toBe('sonnet')
+  })
+
+  test('a bad floor is a config error with its place', () => {
+    expect(() => parseConfig(JSON.stringify({ floors: [{ paths: [], model: 'opus' }] }))).toThrow('floors[0]')
+    expect(() => parseConfig(JSON.stringify({ floors: [{ paths: ['a/**'], model: 'gpt' }] }))).toThrow('floors[0].model must be on the ladder')
+  })
+
+  test('globs: ** crosses folders, * and ? do not', () => {
+    expect(globToRegExp('**/migrations/**').test('migrations/1.sql')).toBe(true)
+    expect(globToRegExp('**/migrations/**').test('db/migrations/x/1.sql')).toBe(true)
+    expect(globToRegExp('migrations/**').test('db/migrations/1.sql')).toBe(false)
+    expect(globToRegExp('*.sql').test('db/1.sql')).toBe(false)
+    expect(globToRegExp('**/*.sql').test('db/1.sql')).toBe(true)
+    expect(globToRegExp('a?.ts').test('ab.ts')).toBe(true)
+    expect(globToRegExp('a.ts').test('abts')).toBe(false)
+  })
+
+  test('cited paths lose quotes, ./ and :line', () => {
+    expect(citedPaths('See `./src/auth/a.ts:12:4`, then "db/x.sql".')).toEqual(['See', 'src/auth/a.ts', 'then', 'db/x.sql'])
+  })
+
+  test('the floor warning shows once, and status lists the floors', async ($, on) => {
+    const w = world(on, { ...FLOORED, maxModel: 'sonnet' })
+    await $.agent.spawn(call({ subagentType: 'reviewer', prompt: 'Check db/migrations/1.sql', description: 'm1' }))
+    await $.agent.spawn(call({ subagentType: 'reviewer', prompt: 'Check db/migrations/2.sql', description: 'm2' }))
+    expect(w.spawned).toEqual(['sonnet', 'sonnet'])
+    expect(w.toasts.filter(t => t.includes('capped at sonnet (maxModel)')).length).toBe(1)
+    const r = await $.command.run({ command: 'model-router', args: 'status' })
+    expect('text' in r ? String(r.text) : '').toContain('Floor: at least sonnet when a task cites **/migrations/**')
   })
 })

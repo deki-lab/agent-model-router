@@ -4,7 +4,8 @@
 
 - The journal now records what each routed run cost. When a subagent the plugin routed finishes a run, a `run` line gives its duration, how it ended and its tokens (input, output, cache read, cache write), linked to its spawn by `agentId`. Spawn lines carry `kind: "spawn"` and the `agentId`. Never the answer.
 - `model-tuner` reports tokens per task beside first-attempt success.
-- `docs/proposals/sizing.md`: the plan for sizing tasks before routing them. This release is its step 0.
+- Risk floors: `floors` lists `{ paths, model }`. A spawn whose description or prompt cites a path one of the globs matches runs at least on that model, whatever chose it, a tag or the caller included. A floor never lowers a model, and `maxModel` still caps it: a floor above `maxModel` is capped when the config is read, with a warning shown once. `/model-router status` lists the floors, and `/model-router` proposes floors for the project's sensitive folders.
+- `docs/proposals/sizing.md`: the plan for sizing tasks before routing them. This release covers its step 0 and the router's part of step 1.
 
 ## 0.5.1
 
