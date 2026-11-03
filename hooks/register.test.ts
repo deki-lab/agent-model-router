@@ -165,6 +165,74 @@ describe('routing', () => {
   })
 })
 
+describe('what each run cost', () => {
+  const USAGE = {
+    model: 'claude-sonnet-5-5',
+    input_tokens: 1200,
+    output_tokens: 340,
+    cache_read_input_tokens: 18_000,
+    cache_creation_input_tokens: 22_000,
+  }
+  const end = (agentId: string | undefined) => ({
+    turnId: 'turn-1',
+    agentId,
+    answer: 'the secret report',
+    durationMs: 4200,
+    isAborted: false,
+    reason: 'answer' as const,
+    usage: USAGE,
+  })
+  const journal = (w: ReturnType<typeof world>) =>
+    (w.files.get(JOURNAL) ?? '').trim().split('\n').filter(l => l !== '').map(l => JSON.parse(l) as Record<string, unknown>)
+
+  test('a routed run is journaled with its tokens and duration, linked to its spawn', async ($, on) => {
+    on('turn.complete', ($, e) => ({ text: e.answer }))
+    const w = world(on, BASE)
+    await $.agent.spawn(call({ subagentType: 'writer', prompt: 'Write block 6', description: 'block 6' }))
+    await $.turn.complete(end('agent-1'))
+    const [spawn, run] = journal(w)
+    expect(spawn?.kind).toBe('spawn')
+    expect(spawn?.agentId).toBe('agent-1')
+    expect(run?.kind).toBe('run')
+    expect(run?.agentId).toBe('agent-1')
+    expect(run?.agent).toBe('writer')
+    expect(run?.task).toBe(spawn?.task)
+    expect(run?.durationMs).toBe(4200)
+    expect(run?.reason).toBe('answer')
+    expect(run?.model).toBe('claude-sonnet-5-5')
+    expect(run?.tokens).toEqual({ input: 1200, output: 340, cacheRead: 18_000, cacheWrite: 22_000 })
+    expect(JSON.stringify(run)).not.toContain('secret')
+  })
+
+  test('the main loop and agents the plugin did not route are not journaled', async ($, on) => {
+    on('turn.complete', ($, e) => ({ text: e.answer }))
+    const w = world(on, BASE)
+    await $.agent.spawn(call({ subagentType: 'writer', prompt: 'Write block 7', description: 'block 7' }))
+    await $.turn.complete(end(undefined))
+    await $.turn.complete(end('agent-99'))
+    expect(journal(w).map(j => j.kind)).toEqual(['spawn'])
+  })
+
+  test('status lists decisions only, not runs', async ($, on) => {
+    on('turn.complete', ($, e) => ({ text: e.answer }))
+    world(on, BASE)
+    await $.agent.spawn(call({ subagentType: 'writer', prompt: 'Write block 9', description: 'block 9' }))
+    await $.turn.complete(end('agent-1'))
+    const r = await $.command.run({ command: 'model-router', args: 'status' })
+    const text = 'text' in r ? String(r.text) : ''
+    expect(text).toContain('writer → claude-sonnet-5-5 (table, attempt 1)')
+    expect(text).not.toContain('undefined')
+  })
+
+  test('with the journal off, no run is journaled', async ($, on) => {
+    on('turn.complete', ($, e) => ({ text: e.answer }))
+    const w = world(on, { ...BASE, journal: { enabled: false } })
+    await $.agent.spawn(call({ subagentType: 'writer', prompt: 'Write block 8', description: 'block 8' }))
+    await $.turn.complete(end('agent-1'))
+    expect(w.files.get(JOURNAL)).toBeUndefined()
+  })
+})
+
 describe('models the user may not have', () => {
   test('escalation stops at the top of the ladder, never past it', async ($, on) => {
     const w = world(on, BASE)

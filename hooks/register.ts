@@ -69,12 +69,14 @@ const staysInside = async ($: EngineInterface, root: string, rel: string): Promi
 // One journal write at a time: parallel spawns would otherwise overwrite each other.
 let journalQueue: Promise<void> = Promise.resolve()
 
-const appendJournal = ($: EngineInterface, cfg: Config, root: string, entry: object): Promise<void> => {
-  const path = join(root, cfg.journal.path)
+type Journal = Config['journal']
+
+const appendJournal = ($: EngineInterface, journal: Journal, root: string, entry: object): Promise<void> => {
+  const path = join(root, journal.path)
   const run = journalQueue.then(async () => {
-    const relDir = dirOf(cfg.journal.path)
-    if (!(await staysInside($, root, cfg.journal.path)) || !(await staysInside($, root, `${relDir}/.gitignore`))) {
-      throw new Error(`${cfg.journal.path} resolves outside the project`)
+    const relDir = dirOf(journal.path)
+    if (!(await staysInside($, root, journal.path)) || !(await staysInside($, root, `${relDir}/.gitignore`))) {
+      throw new Error(`${journal.path} resolves outside the project`)
     }
     const ignore = join(root, `${relDir}/.gitignore`)
     // The journal holds task descriptions: keep its folder out of git by default.
@@ -82,11 +84,30 @@ const appendJournal = ($: EngineInterface, cfg: Config, root: string, entry: obj
     const old = (await $.fs.exists(path)) ? (await $.fs.read(path)).split('\n').filter(l => l.trim() !== '') : []
     old.push(JSON.stringify(entry))
     // Checked again right before the write: the reads above leave time to swap in a link.
-    if (!(await staysInside($, root, cfg.journal.path))) throw new Error(`${cfg.journal.path} resolves outside the project`)
-    await $.fs.write(path, `${old.slice(-cfg.journal.maxEntries).join('\n')}\n`)
+    if (!(await staysInside($, root, journal.path))) throw new Error(`${journal.path} resolves outside the project`)
+    await $.fs.write(path, `${old.slice(-journal.maxEntries).join('\n')}\n`)
   })
   journalQueue = run.catch(() => {})
   return run
+}
+
+/**
+ * The subagents this plugin journaled a spawn for, by agent id, so the end of
+ * each of their runs can be journaled too. Held in memory: a run that ends
+ * after the session restarts is not measured. Bounded, oldest first out.
+ */
+type Running = { root: string; journal: Journal; agent: string; task: string }
+const running = new Map<string, Running>()
+const MAX_RUNNING = 256
+
+const track = (agentId: string, run: Running): void => {
+  running.delete(agentId)
+  running.set(agentId, run)
+  while (running.size > MAX_RUNNING) {
+    const oldest = running.keys().next().value
+    if (oldest === undefined) break
+    running.delete(oldest)
+  }
 }
 
 // The store is the user's, shared by every project: retry history is keyed by
@@ -198,8 +219,11 @@ export const register: Register = on => {
       }
 
       if (cfg.journal.enabled) {
-        await appendJournal($, cfg, root, {
+        if (result.agentId !== undefined) track(result.agentId, { root, journal: cfg.journal, agent: e.subagentType, task })
+        await appendJournal($, cfg.journal, root, {
+          kind: 'spawn',
           ts: new Date(now).toISOString(),
+          agentId: result.agentId ?? null,
           agent: e.subagentType,
           task,
           attempt: attempt.count,
@@ -217,6 +241,33 @@ export const register: Register = on => {
 
     return result
   }).catch(($, e, next) => next(e)) // fail open: a broken config or store never blocks an agent
+
+  // What each routed run cost: one journal line per run of a subagent this
+  // plugin journaled, linked to its spawn by `agentId`. Never the answer.
+  on('turn.complete', async ($, e, next) => {
+    const result = await next(e)
+    const run = e.agentId === undefined ? undefined : running.get(e.agentId)
+    if (!run) return result
+    try {
+      const u = e.usage
+      await appendJournal($, run.journal, run.root, {
+        kind: 'run',
+        ts: new Date(await $.clock.now()).toISOString(),
+        agentId: e.agentId,
+        agent: run.agent,
+        task: run.task,
+        reason: e.reason,
+        durationMs: e.durationMs,
+        model: u?.model ?? null,
+        tokens: u
+          ? { input: u.input_tokens, output: u.output_tokens, cacheRead: u.cache_read_input_tokens, cacheWrite: u.cache_creation_input_tokens }
+          : null,
+      }).catch(err => $.ui.log(`agent-model-router: run not journaled: ${(err as Error).message}`))
+    } catch (err) {
+      $.ui.log(`agent-model-router: run not journaled: ${(err as Error).message}`)
+    }
+    return result
+  })
 
   on('command.run', { command: 'model-router' }, async ($, e) => {
     const loaded = await loadConfig($)
@@ -308,15 +359,19 @@ const status = async ($: EngineInterface, loaded: Loaded): Promise<string[]> => 
 
     const journal = join(root, cfg.journal.path)
     if (cfg.journal.enabled && (await $.fs.exists(journal)) && (await staysInside($, root, cfg.journal.path))) {
-      const last = (await $.fs.read(journal)).split('\n').filter(l => l.trim() !== '').slice(-10)
-      lines.push('Last decisions:')
-      for (const l of last) {
+      const decisions: Record<string, unknown>[] = []
+      for (const l of (await $.fs.read(journal)).split('\n')) {
         try {
-          const j = JSON.parse(l) as Record<string, unknown>
-          lines.push(`  ${String(j.ts).slice(0, 16)} ${short(String(j.agent))} → ${String(j.resolved)} (${String(j.source)}, attempt ${String(j.attempt)})`)
+          const j = JSON.parse(l) as unknown
+          // Run lines say what a run cost, not what was decided.
+          if (typeof j === 'object' && j !== null && (j as Record<string, unknown>).kind !== 'run') decisions.push(j as Record<string, unknown>)
         } catch {
-          // a hand-edited line: skip it
+          // a blank or hand-edited line: skip it
         }
+      }
+      lines.push('Last decisions:')
+      for (const j of decisions.slice(-10)) {
+        lines.push(`  ${String(j.ts).slice(0, 16)} ${short(String(j.agent))} → ${String(j.resolved)} (${String(j.source)}, attempt ${String(j.attempt)})`)
       }
     }
   }
