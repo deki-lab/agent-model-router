@@ -1,6 +1,6 @@
 # Proposal: sizing tasks before routing them
 
-Status: accepted direction, rolled out step by step. Written 2026-11-03.
+Status: accepted direction, rolled out step by step. Written 2026-11-03. Done in 0.6.0: step 0, and the router's part of step 1 (floors); dev-team carries the task key per step from 0.7.3.
 
 Today the router knows three things about a spawn: which agent it is, an optional
 regular expression on the prompt, and how many times the same task was spawned. Two

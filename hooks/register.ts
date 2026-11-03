@@ -188,6 +188,11 @@ export const register: Register = on => {
     }
     const cfg = loaded.config
     if (!cfg || !cfg.enabled) return next(e)
+    for (const warning of cfg.warnings) {
+      if (reported.has(warning)) continue
+      reported.add(warning)
+      $.ui.toast(`agent-model-router: ${warning}`)
+    }
 
     const facts = { agent: e.subagentType, prompt: e.prompt, description: e.description, given: e.model }
     const now = await $.clock.now()
@@ -347,6 +352,8 @@ const status = async ($: EngineInterface, loaded: Loaded): Promise<string[]> => 
     lines.push(`Routing: ${cfg.enabled ? 'on' : 'off (enabled: false)'}`)
     lines.push(`Ladder: ${cfg.ladder.join(' < ')}${cfg.maxModel ? `, capped at ${cfg.maxModel}` : ''}`)
     lines.push(`Escalation on retry: ${cfg.escalation.enabled ? `on, within ${cfg.escalation.windowMinutes} min` : 'off'}`)
+    for (const floor of cfg.floors) lines.push(`Floor: at least ${floor.model} when a task cites ${floor.paths.join(', ')}`)
+    for (const warning of cfg.warnings) lines.push(`Warning: ${warning}`)
     for (const [name, entry] of Object.entries(cfg.agents)) {
       const rules = entry.rules.length ? `, ${entry.rules.length} rule(s)` : ''
       lines.push(`  ${name}: ${entry.model ?? 'agent default'}${rules}`)
