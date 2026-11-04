@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.6.1
+
+- `/model-router` applies the dev-team conventions when the project runs its cycle: every `dev-team:` agent the cycle names, the task key `#\\d+\\s+(?:spec|impl|qa(?:\\s+\\d+)?|review(?:\\s+\\d+)?)` (the ticket and its step, so Archie's PR review is not a retry of his spec), floors on the areas Lockie reviews, and no `CLAUDE.md` line to add. A key that captures the ticket alone is replaced. Projects set up before only need `/model-router` run again.
+
 ## 0.6.0
 
 - The journal now records what each routed run cost. When a subagent the plugin routed finishes a run, a `run` line gives its duration, how it ended and its tokens (input, output, cache read, cache write), linked to its spawn by `agentId`. Spawn lines carry `kind: "spawn"` and the `agentId`. Never the answer.
