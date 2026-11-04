@@ -7,7 +7,7 @@
 A Claude Code plugin that picks the model each subagent runs on, per project, and learns from what it picked.
 
 [![check](https://github.com/deki-lab/agent-model-router/actions/workflows/check.yml/badge.svg)](https://github.com/deki-lab/agent-model-router/actions/workflows/check.yml)
-![version](https://img.shields.io/badge/version-0.6.0-blue)
+![version](https://img.shields.io/badge/version-0.6.1-blue)
 ![Claude Code](https://img.shields.io/badge/Claude%20Code-%E2%89%A5%202.1.293-d97757)
 ![license](https://img.shields.io/badge/license-MIT-green)
 
@@ -76,9 +76,12 @@ It pays off in projects that delegate repeated tasks to agents: a writer, a revi
    - sets `escalation.taskKey` to the way your tasks are named, in their language (`bloc 3`, `ticket 42`);
    - adds rules only where the project marks a kind of task as harder;
    - points `context` at the files where outcomes are recorded;
+   - adds floors on the sensitive paths that exist in the project (migrations, auth, payments);
    - proposes one line for your `CLAUDE.md` so that each delegation names its task (see [How a retry is recognized](#-how-a-retry-is-recognized)), and asks before writing it.
 
    When the project delegates to no agent at all, Claude changes nothing and says so.
+
+   When the project runs the [dev-team](https://github.com/deki-lab/dev-team) cycle, Claude also applies its conventions. It sets the task key to the ticket and its step (`#42 spec`, `#42 impl`, `#42 qa 2`, `#42 review`), so a second step on one ticket is not taken for a retry. It replaces a key that captures the ticket alone, puts floors on the areas Lockie reviews, and proposes no `CLAUDE.md` line, since `/dev-team:cycle` already names each step. A project set up before this only needs `/model-router` run again.
 
 Each later run shows the active config, then fits it again to the project as it is now (a new agent, a renamed task). It never overwrites the config: Claude edits it, with your permission.
 

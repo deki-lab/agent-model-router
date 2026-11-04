@@ -11,7 +11,7 @@ The agent-model-router plugin has a config for this project at `.claude/agent-mo
 
 ## Change in the config
 
-- `agents`: one entry per agent in `.claude/agents/`, plus `Explore`, plus each user or plugin agent that this project delegates to: `CLAUDE.md` or the workflow names it, or the journal shows it spawned. Leave out the others: a user's plugins serve many projects. Key a plugin agent by its full name (`dev-team:kody`). Add a missing agent on its frontmatter model; when that model is not on `ladder`, or its file cannot be read, add the entry without `model` so the agent keeps its own. Remove the entry of an agent that is no longer available. Keep the model and rules of an existing entry as they are: the user may have tuned them on purpose. Do not add models that are not on `ladder`, and do not change `ladder` or `maxModel`.
+- `agents`: one entry per agent in `.claude/agents/`, plus `Explore`, plus each user or plugin agent that this project delegates to: `CLAUDE.md` or the workflow names it, or the journal shows it spawned. Leave out the others: a user's plugins serve many projects. Key a plugin agent by its full name (`dev-team:kody`). Add a missing agent on its frontmatter model, written as the ladder's alias: a full id counts as the rung its name contains (`claude-opus-5-5` is `opus`). When that model is not on `ladder`, or its file cannot be read, add the entry without `model` so the agent keeps its own. Remove the entry of an agent that is no longer available. Keep the model and rules of an existing entry as they are: the user may have tuned them on purpose. Do not add models that are not on `ladder`, and do not change `ladder` or `maxModel`.
 - If the config already fits the project, change nothing and say so. If the project delegates to no agent at all, change nothing and say that only built-in agents are routed.
 - `escalation.taskKey`: a case-insensitive regular expression that matches the name of one task as this project writes it, in the project's language (`bloc\\s*\\d+|intro|outro`, `ticket\\s*#?\\d+`). The plugin uses the first match, searched in the delegation's `description`, then in its `prompt`. Leave it out when tasks have no stable names.
 - `agents.<name>.rules`: add one only when the project clearly marks a kind of task as harder (an opening, a security change). Match a phrase that appears only in the request (`write the intro`), never a word that also appears in repeated context such as a list of finished tasks.
@@ -19,11 +19,20 @@ The agent-model-router plugin has a config for this project at `.claude/agent-mo
 - `floors`: add one only for paths that exist in this project and where a weak model can do lasting harm: schema migrations, authentication, permissions, payments, deletion of data. List the folders with `**/` in front (`**/migrations/**`) and set the floor's model to the one the project's riskiest agent runs on, never above `maxModel`. Keep the existing floors as they are. No such paths: no floor.
 - Regular expressions: JSON-escape backslashes. In JavaScript, `\b` only knows ASCII letters: never put `\b` next to an accented letter.
 
+## Known teams
+
+When the project delegates to the `dev-team` plugin's agents (`dev-team:dodie`, `dev-team:archie`, `dev-team:kody`…: a "Development cycle" section in `CLAUDE.md` or `AGENTS.md` names them, or the journal shows them spawned), its `cycle` skill already names each step in the `description` (`#42 spec`, `#42 impl`, `#42 qa 2`, `#42 review`). Then:
+
+- `agents`: every `dev-team:` agent the cycle names, on its frontmatter model, as above.
+- `escalation.taskKey`: exactly `#\\d+\\s+(?:spec|impl|qa(?:\\s+\\d+)?|review(?:\\s+\\d+)?)`. Replace an existing `taskKey` that captures the issue alone (such as `#\\d+`): with it, Archie's PR review counts as a retry of his technical spec, and a second QA round as a failure. Keep any other existing `taskKey`, and say in the report why it differs.
+- `floors`: the sensitive areas the cycle lists for `dev-team:lockie`, when they are paths of this project, on the model `dev-team:lockie` runs on, never above `maxModel`. If its file cannot be read, use the highest rung of `ladder` other than `fable`, still never above `maxModel`: a floor set too high only costs money.
+- Propose no `CLAUDE.md` line about descriptions: the `cycle` skill writes them.
+
 Write the file. Keep it valid JSON: the plugin reads it on every spawn, and a broken file turns routing off.
 
 ## Propose, do not apply
 
-Retry detection works only if each delegation names its task in the `description` of the Agent call. Find the project's delegation rules in `CLAUDE.md` and propose one line to add there, in the project's language, for example:
+Unless the `dev-team` cycle already does it, retry detection works only if each delegation names its task in the `description` of the Agent call. Find the project's delegation rules in `CLAUDE.md` and propose one line to add there, in the project's language, for example:
 
 > The `description` of each Agent call names the task and its scope, for example `Block 3 episode 2`.
 
